@@ -10,3 +10,4 @@ venv/
 opentelemetry-javaagent*.jar
 grafana-opentelemetry*.jar
 
+.aider*
