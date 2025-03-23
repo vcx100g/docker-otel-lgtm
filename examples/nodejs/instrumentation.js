@@ -1,3 +1,5 @@
+const os = require('os');
+const fs = require('fs');
 const { NodeSDK } = require('@opentelemetry/sdk-node')
 const {
   getNodeAutoInstrumentations
@@ -160,6 +162,94 @@ const requestErrors = meter.createCounter('http_requests_errors_total', {
   description: 'Total number of failed HTTP requests',
 });
 
+
+// ✅ Create an ObservableGauge for HTTP request concurrency
+let activeRequests = 0;
+const requestConcurrency = meter.createObservableGauge('http_request_concurrency', {
+  description: 'Number of concurrent HTTP requests being processed',
+});
+
+// ✅ Register a callback to observe the live active request count
+requestConcurrency.addCallback((observableResult) => {
+  observableResult.observe(activeRequests);
+});
+
+// ✅ Gauge for garbage collection time
+const { performance } = require('perf_hooks');
+const { PerformanceObserver, constants } = require('perf_hooks');
+
+// ✅ Track Garbage Collection Time
+const gcTimeGauge = meter.createObservableGauge('process_gc_time_seconds', {
+  description: 'Total time spent in garbage collection (seconds)',
+});
+
+// ✅ Keep a counter for GC time
+let totalGcTime = 0;
+
+// ✅ Observe garbage collection events
+const obs = new PerformanceObserver((list) => {
+  const entry = list.getEntries()[0];
+  totalGcTime += entry.duration / 1000; // Convert ms to seconds
+});
+obs.observe({ entryTypes: ['gc'], buffered: true });
+
+// ✅ Report GC time via Observable Gauge
+gcTimeGauge.addCallback((observableResult) => {
+  observableResult.observe(totalGcTime);
+});
+
+
+// ✅ Gauge for event loop lag
+const eventLoopLagGauge = meter.createObservableGauge('process_event_loop_lag_seconds', {
+  description: 'Maximum event loop lag in the last scrape interval (seconds)',
+});
+
+let maxLag = 0;
+
+// ✅ Continuously measure event loop lag
+function measureEventLoopLag() {
+  const start = performance.now();
+  setTimeout(() => {
+    const lag = (performance.now() - start - 1000) / 1000; // Expected delay is 1000ms
+    if (lag > maxLag) {
+      maxLag = lag; // Track the worst-case lag
+    }
+    measureEventLoopLag(); // Schedule the next measurement
+  }, 1000); // Measure every 1 second
+}
+measureEventLoopLag();
+
+// ✅ Report max event loop lag per scrape
+eventLoopLagGauge.addCallback((observableResult) => {
+  observableResult.observe(maxLag);
+  maxLag = 0; // Reset for the next scrape interval
+});
+
+
+
+// ✅ Gauge for open file descriptors
+const openFileDescriptors = meter.createObservableGauge('process_open_fds', {
+  description: 'Number of open file descriptors',
+});
+openFileDescriptors.addCallback((observableResult) => {
+  if (os.platform() === 'linux') { // ✅ Ensure it runs only on Linux
+    try {
+      const files = fs.readdirSync('/proc/self/fd'); // ✅ Synchronous call
+      observableResult.observe(files.length);
+    } catch (err) {
+      observableResult.observe(0); // Fallback in case of error
+    }
+  } else {
+    observableResult.observe(0); // Report 0 on non-Linux systems
+  }
+});
+
+const networkLatency = meter.createHistogram('http_request_network_latency_seconds', {
+  description: 'Time taken before request starts processing (seconds)',
+  boundaries: [0.001, 0.01, 0.1, 0.5, 1, 5],
+});
+
+
 module.exports = {
   requestCount,
   requestDuration,
@@ -173,4 +263,10 @@ module.exports = {
   // totalMemoryGauge,
   // freeMemoryGauge,
   processMemoryGauge,
+  activeRequests,
+  gcTimeGauge,
+  requestConcurrency,
+  eventLoopLagGauge,
+  openFileDescriptors,
+  networkLatency,
 };

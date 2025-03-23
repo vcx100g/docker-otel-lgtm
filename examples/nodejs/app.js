@@ -10,8 +10,13 @@ const {
   responseSize,
   requestCount,
   requestDuration,
-  requestErrors
+  requestErrors,
+  networkLatency,
+  requestConcurrency,
+  
 } = require('./instrumentation.js')
+
+let {activeRequests} = require('./instrumentation.js')
 
 const tracer = trace.getTracer('dice-server', '0.1.0')
 
@@ -26,6 +31,7 @@ app.use((req, res, next) => {
   const startTime = process.hrtime()
 
   // ✅ Track in-flight requests
+  activeRequests += 1;
   inFlightRequests.add(1)
 
   // ✅ Measure request size (approximate using content-length header)
@@ -38,10 +44,19 @@ app.use((req, res, next) => {
     route: req.path
   })
 
+
+  // ✅ Track network latency (time before request starts processing)
+  setImmediate(() => { // ✅ Measure just before entering next middleware
+    const duration = process.hrtime(startTime);
+    const latencyInSeconds = duration[0] + duration[1] / 1e9;
+    networkLatency.record(latencyInSeconds, { method: req.method, route: req.path });
+  });
+
   res.on('finish', () => {
     const duration = process.hrtime(startTime)
     const durationInSeconds = duration[0] + duration[1] / 1e9
 
+    activeRequests -= 1; // ✅ Decrease active requests
     // ✅ Decrease in-flight requests
     inFlightRequests.add(-1)
 
