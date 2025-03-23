@@ -19,7 +19,7 @@ class Logger {
     // To start a logger, you first need to initialize the Logger provider.
     const loggerProvider = new LoggerProvider({
       resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
+        [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "rolldice",
         [ATTR_SERVICE_VERSION]: process.env.OTEL_SERVICE_VERSION
       })
     })
